@@ -16,12 +16,14 @@ Requirements:
    - total spending
    - spending by category
    - spending by day
+   - optional spending by month
    - the largest single expense
 
 Usage:
     python expense_report_demo.py
     python expense_report_demo.py expenses.csv
     python expense_report_demo.py expenses.csv --top 3
+    python expense_report_demo.py expenses.csv --monthly
 """
 
 from __future__ import annotations
@@ -60,6 +62,7 @@ class Report:
     total_spent: Decimal
     by_category: list[tuple[str, Decimal]]
     by_day: list[tuple[date, Decimal]]
+    by_month: list[tuple[str, Decimal]]
     largest_expense: Expense | None
 
 
@@ -77,6 +80,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=5,
         help="Number of category/day rows to display in each section (default: 5).",
+    )
+    parser.add_argument(
+        "--monthly",
+        action="store_true",
+        help="Include a spending-by-month section in the report.",
     )
     return parser.parse_args()
 
@@ -124,10 +132,12 @@ def clean_value(value: str | None) -> str:
 def build_report(expenses: list[Expense]) -> Report:
     by_category_totals: defaultdict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     by_day_totals: defaultdict[date, Decimal] = defaultdict(lambda: Decimal("0"))
+    by_month_totals: defaultdict[str, Decimal] = defaultdict(lambda: Decimal("0"))
 
     for expense in expenses:
         by_category_totals[expense.category] += expense.amount
         by_day_totals[expense.spent_on] += expense.amount
+        by_month_totals[expense.spent_on.strftime("%Y-%m")] += expense.amount
 
     total_spent = sum((expense.amount for expense in expenses), start=Decimal("0"))
     by_category = sorted(
@@ -135,12 +145,14 @@ def build_report(expenses: list[Expense]) -> Report:
         key=lambda item: (-item[1], item[0].lower()),
     )
     by_day = sorted(by_day_totals.items(), key=lambda item: (-item[1], item[0]))
+    by_month = sorted(by_month_totals.items(), key=lambda item: item[0])
     largest_expense = max(expenses, key=lambda expense: expense.amount, default=None)
 
     return Report(
         total_spent=total_spent,
         by_category=by_category,
         by_day=by_day,
+        by_month=by_month,
         largest_expense=largest_expense,
     )
 
@@ -150,7 +162,12 @@ def format_money(amount: Decimal) -> str:
 
 
 def render_report(
-    report: Report, valid_count: int, errors: list[str], source_label: str, top_n: int
+    report: Report,
+    valid_count: int,
+    errors: list[str],
+    source_label: str,
+    top_n: int,
+    include_monthly: bool,
 ) -> str:
     lines = [
         "Expense Report",
@@ -188,6 +205,16 @@ def render_report(
     else:
         lines.append("No daily totals available.")
 
+    if include_monthly:
+        lines.append("")
+        lines.append("Monthly Totals")
+        lines.append("-" * 40)
+        if report.by_month:
+            for month, total in report.by_month:
+                lines.append(f"{month:<15} {format_money(total)}")
+        else:
+            lines.append("No monthly totals available.")
+
     if errors:
         lines.append("")
         lines.append("Validation Errors")
@@ -222,6 +249,7 @@ def main() -> int:
         errors=errors,
         source_label=source_label,
         top_n=max(args.top, 1),
+        include_monthly=args.monthly,
     )
     print(output)
     return 0
